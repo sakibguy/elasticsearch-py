@@ -22,7 +22,7 @@ from elastic_transport import ConnectionError as ConnectionError
 from elastic_transport import ConnectionTimeout as ConnectionTimeout
 from elastic_transport import SerializationError as SerializationError
 from elastic_transport import TlsError as SSLError
-from elastic_transport import TransportError as _TransportError
+from elastic_transport import TransportError as TransportError
 from elastic_transport import TransportWarning
 
 __all__ = [
@@ -42,17 +42,17 @@ __all__ = [
 class ApiError(_ApiError):
     @property
     def status_code(self) -> int:
-        """Backwards-compatible shorthand for 'self.meta.status'"""
+        """Backwards-compatible way to access ``self.meta.status``"""
         return self.meta.status
 
     @property
     def error(self) -> str:
-        """A string error message."""
-        return self.message  # type: ignore
+        """Backwards-compatible way to access ``self.message``"""
+        return self.message
 
     @property
     def info(self) -> Any:
-        """Backwards-compatible way to access '.body'"""
+        """Backwards-compatible way to access ``self.body``"""
         return self.body
 
     def __str__(self) -> str:
@@ -86,7 +86,7 @@ class UnsupportedProductError(ApiError):
     """
 
     def __str__(self) -> str:
-        return self.message  # type: ignore
+        return self.message
 
 
 class NotFoundError(ApiError):
@@ -116,14 +116,12 @@ class ElasticsearchWarning(TransportWarning):
 
 
 # Aliases for backwards compatibility
-ElasticsearchException = _TransportError
 ElasticsearchDeprecationWarning = ElasticsearchWarning
-TransportError = ApiError
 RequestError = BadRequestError
 
 
 HTTP_EXCEPTIONS: Dict[int, Type[ApiError]] = {
-    400: RequestError,
+    400: BadRequestError,
     401: AuthenticationException,
     403: AuthorizationException,
     404: NotFoundError,

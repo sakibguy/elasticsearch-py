@@ -53,7 +53,7 @@ from ...exceptions import (
     SerializationError,
     UnsupportedProductError,
 )
-from .utils import _TYPE_ASYNC_SNIFF_CALLBACK, _base64_auth_header
+from .utils import _TYPE_ASYNC_SNIFF_CALLBACK, _base64_auth_header, _quote_query
 
 _WARNING_RE = re.compile(r"\"([^\"]*)\"")
 
@@ -242,18 +242,25 @@ class BaseClient:
     def transport(self) -> AsyncTransport:
         return self._transport
 
-    async def _perform_request(
+    async def perform_request(
         self,
         method: str,
-        target: str,
+        path: str,
+        *,
+        params: Optional[Mapping[str, Any]] = None,
         headers: Optional[Mapping[str, str]] = None,
         body: Optional[Any] = None,
-    ) -> ApiResponse[Any, Any]:
+    ) -> ApiResponse[Any]:
         if headers:
             request_headers = self._headers.copy()
             request_headers.update(headers)
         else:
             request_headers = self._headers
+
+        if params:
+            target = f"{path}?{_quote_query(params)}"
+        else:
+            target = path
 
         meta, resp_body = await self.transport.perform_request(
             method,
@@ -327,18 +334,18 @@ class BaseClient:
         if method == "HEAD":
             response = HeadApiResponse(meta=meta)
         elif isinstance(resp_body, dict):
-            response = ObjectApiResponse(raw=resp_body, meta=meta)  # type: ignore[assignment]
+            response = ObjectApiResponse(body=resp_body, meta=meta)  # type: ignore[assignment]
         elif isinstance(resp_body, list):
-            response = ListApiResponse(raw=resp_body, meta=meta)  # type: ignore[assignment]
+            response = ListApiResponse(body=resp_body, meta=meta)  # type: ignore[assignment]
         elif isinstance(resp_body, str):
             response = TextApiResponse(  # type: ignore[assignment]
-                raw=resp_body,
+                body=resp_body,
                 meta=meta,
             )
         elif isinstance(resp_body, bytes):
-            response = BinaryApiResponse(raw=resp_body, meta=meta)  # type: ignore[assignment]
+            response = BinaryApiResponse(body=resp_body, meta=meta)  # type: ignore[assignment]
         else:
-            response = ApiResponse(raw=resp_body, meta=meta)  # type: ignore[assignment]
+            response = ApiResponse(body=resp_body, meta=meta)  # type: ignore[assignment]
 
         return response
 
@@ -348,15 +355,17 @@ class NamespacedClient(BaseClient):
         self._client = client
         super().__init__(self._client.transport)
 
-    async def _perform_request(
+    async def perform_request(
         self,
         method: str,
-        target: str,
+        path: str,
+        *,
+        params: Optional[Mapping[str, Any]] = None,
         headers: Optional[Mapping[str, str]] = None,
         body: Optional[Any] = None,
-    ) -> Any:
+    ) -> ApiResponse[Any]:
         # Use the internal clients .perform_request() implementation
         # so we take advantage of their transport options.
-        return await self._client._perform_request(
-            method, target, headers=headers, body=body
+        return await self._client.perform_request(
+            method, path, params=params, headers=headers, body=body
         )

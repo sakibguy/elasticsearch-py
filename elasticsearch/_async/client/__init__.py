@@ -45,7 +45,7 @@ from elastic_transport import (
 )
 from elastic_transport.client_utils import DEFAULT, DefaultType
 
-from ...exceptions import ApiError
+from ...exceptions import ApiError, TransportError
 from ...serializer import DEFAULT_SERIALIZERS
 from ._base import (
     BaseClient,
@@ -89,7 +89,6 @@ from .utils import (
     CLIENT_META_SERVICE,
     SKIP_IN_PATH,
     _quote,
-    _quote_query,
     _rewrite_parameters,
     client_node_configs,
 )
@@ -168,6 +167,7 @@ class AsyncElasticsearch(BaseClient):
         node_selector_class: Union[DefaultType, Type[NodeSelector]] = DEFAULT,
         dead_node_backoff_factor: Union[DefaultType, float] = DEFAULT,
         max_dead_node_backoff: Union[DefaultType, float] = DEFAULT,
+        serializer: Optional[Serializer] = None,
         serializers: Union[DefaultType, Mapping[str, Serializer]] = DEFAULT,
         default_mimetype: str = "application/json",
         max_retries: Union[DefaultType, int] = DEFAULT,
@@ -182,7 +182,6 @@ class AsyncElasticsearch(BaseClient):
             Callable[[Dict[str, Any], NodeConfig], Optional[NodeConfig]]
         ] = None,
         meta_header: Union[DefaultType, bool] = DEFAULT,
-        # Deprecated
         timeout: Union[DefaultType, None, float] = DEFAULT,
         randomize_hosts: Union[DefaultType, bool] = DEFAULT,
         host_info_callback: Optional[
@@ -213,6 +212,14 @@ class AsyncElasticsearch(BaseClient):
                 stacklevel=2,
             )
             request_timeout = timeout
+
+        if serializer is not None:
+            if serializers is not DEFAULT:
+                raise ValueError(
+                    "Can't specify both 'serializer' and 'serializers' parameters "
+                    "together. Instead only specify one of the other."
+                )
+            serializers = {default_mimetype: serializer}
 
         if randomize_hosts is not DEFAULT:
             if randomize_nodes_in_pool is not DEFAULT:
@@ -344,10 +351,12 @@ class AsyncElasticsearch(BaseClient):
                 transport_kwargs["max_dead_node_backoff"] = max_dead_node_backoff
             if meta_header is not DEFAULT:
                 transport_kwargs["meta_header"] = meta_header
-            if serializers is DEFAULT:
-                transport_kwargs["serializers"] = DEFAULT_SERIALIZERS
-            else:
-                transport_kwargs["serializers"] = serializers
+
+            transport_serializers = DEFAULT_SERIALIZERS
+            if serializers is not DEFAULT:
+                transport_serializers.update(serializers)
+            transport_kwargs["serializers"] = transport_serializers
+
             transport_kwargs["default_mimetype"] = default_mimetype
             if sniff_on_start is not DEFAULT:
                 transport_kwargs["sniff_on_start"] = sniff_on_start
@@ -524,9 +533,14 @@ class AsyncElasticsearch(BaseClient):
         filter_path: Optional[Union[List[str], str]] = None,
         human: Optional[bool] = None,
         pretty: Optional[bool] = None,
-    ) -> Any:
+    ) -> bool:
         """
-        Returns basic information about the cluster.
+        Returns True if a successful response returns from the info() API,
+        otherwise returns False. This API call can fail either at the transport
+        layer (due to connection errors or timeouts) or from a non-2XX HTTP response
+        (due to authentication or authorization issues).
+
+        If you want to discover why the request failed you should use the ``info()`` API.
 
         `<https://www.elastic.co/guide/en/elasticsearch/reference/current/index.html>`_
         """
@@ -540,16 +554,14 @@ class AsyncElasticsearch(BaseClient):
             __query["human"] = human
         if pretty is not None:
             __query["pretty"] = pretty
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         try:
-            resp = await self._perform_request("HEAD", __target, headers=__headers)
-            return resp
-        except ApiError as e:
-            return HeadApiResponse(meta=e.meta)
+            await self.perform_request(
+                "HEAD", __path, params=__query, headers=__headers
+            )
+            return True
+        except (ApiError, TransportError):
+            return False
 
     # AUTO-GENERATED-API-DEFINITIONS #
 
@@ -641,15 +653,13 @@ class AsyncElasticsearch(BaseClient):
         if wait_for_active_shards is not None:
             __query["wait_for_active_shards"] = wait_for_active_shards
         __body = operations
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {
             "accept": "application/json",
             "content-type": "application/x-ndjson",
         }
-        return await self._perform_request("PUT", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "PUT", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -685,14 +695,12 @@ class AsyncElasticsearch(BaseClient):
             __body["scroll_id"] = scroll_id
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("DELETE", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "DELETE", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -730,14 +738,12 @@ class AsyncElasticsearch(BaseClient):
             __query["pretty"] = pretty
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("DELETE", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "DELETE", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -846,14 +852,12 @@ class AsyncElasticsearch(BaseClient):
             __query["terminate_after"] = terminate_after
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_name="document",
@@ -930,12 +934,10 @@ class AsyncElasticsearch(BaseClient):
         if wait_for_active_shards is not None:
             __query["wait_for_active_shards"] = wait_for_active_shards
         __body = document
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request("PUT", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "PUT", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters()
     async def delete(
@@ -1010,12 +1012,10 @@ class AsyncElasticsearch(BaseClient):
             __query["version_type"] = version_type
         if wait_for_active_shards is not None:
             __query["wait_for_active_shards"] = wait_for_active_shards
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("DELETE", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "DELETE", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -1196,12 +1196,10 @@ class AsyncElasticsearch(BaseClient):
             __query["wait_for_active_shards"] = wait_for_active_shards
         if wait_for_completion is not None:
             __query["wait_for_completion"] = wait_for_completion
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters()
     async def delete_by_query_rethrottle(
@@ -1237,12 +1235,10 @@ class AsyncElasticsearch(BaseClient):
             __query["pretty"] = pretty
         if requests_per_second is not None:
             __query["requests_per_second"] = requests_per_second
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters()
     async def delete_script(
@@ -1281,12 +1277,10 @@ class AsyncElasticsearch(BaseClient):
             __query["pretty"] = pretty
         if timeout is not None:
             __query["timeout"] = timeout
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("DELETE", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "DELETE", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         parameter_aliases={
@@ -1374,12 +1368,10 @@ class AsyncElasticsearch(BaseClient):
             __query["version"] = version
         if version_type is not None:
             __query["version_type"] = version_type
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("HEAD", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "HEAD", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         parameter_aliases={
@@ -1462,12 +1454,10 @@ class AsyncElasticsearch(BaseClient):
             __query["version"] = version
         if version_type is not None:
             __query["version_type"] = version_type
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("HEAD", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "HEAD", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -1572,14 +1562,12 @@ class AsyncElasticsearch(BaseClient):
             __query["stored_fields"] = stored_fields
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -1660,14 +1648,12 @@ class AsyncElasticsearch(BaseClient):
             __body["runtime_mappings"] = runtime_mappings
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         parameter_aliases={
@@ -1756,12 +1742,10 @@ class AsyncElasticsearch(BaseClient):
             __query["version"] = version
         if version_type is not None:
             __query["version_type"] = version_type
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("GET", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "GET", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters()
     async def get_script(
@@ -1796,12 +1780,10 @@ class AsyncElasticsearch(BaseClient):
             __query["master_timeout"] = master_timeout
         if pretty is not None:
             __query["pretty"] = pretty
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("GET", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "GET", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters()
     async def get_script_context(
@@ -1827,12 +1809,10 @@ class AsyncElasticsearch(BaseClient):
             __query["human"] = human
         if pretty is not None:
             __query["pretty"] = pretty
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("GET", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "GET", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters()
     async def get_script_languages(
@@ -1858,12 +1838,10 @@ class AsyncElasticsearch(BaseClient):
             __query["human"] = human
         if pretty is not None:
             __query["pretty"] = pretty
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("GET", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "GET", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         parameter_aliases={
@@ -1939,12 +1917,10 @@ class AsyncElasticsearch(BaseClient):
             __query["version"] = version
         if version_type is not None:
             __query["version_type"] = version_type
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("GET", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "GET", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         body_name="document",
@@ -2046,12 +2022,10 @@ class AsyncElasticsearch(BaseClient):
         if wait_for_active_shards is not None:
             __query["wait_for_active_shards"] = wait_for_active_shards
         __body = document
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request(__method, __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            __method, __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters()
     async def info(
@@ -2077,12 +2051,10 @@ class AsyncElasticsearch(BaseClient):
             __query["human"] = human
         if pretty is not None:
             __query["pretty"] = pretty
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("GET", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "GET", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -2154,14 +2126,12 @@ class AsyncElasticsearch(BaseClient):
             __body["stored_fields"] = stored_fields
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -2254,12 +2224,10 @@ class AsyncElasticsearch(BaseClient):
             __query["_source_includes"] = source_includes
         if stored_fields is not None:
             __query["stored_fields"] = stored_fields
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_name="searches",
@@ -2362,15 +2330,13 @@ class AsyncElasticsearch(BaseClient):
         if typed_keys is not None:
             __query["typed_keys"] = typed_keys
         __body = searches
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {
             "accept": "application/json",
             "content-type": "application/x-ndjson",
         }
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_name="search_templates",
@@ -2433,15 +2399,13 @@ class AsyncElasticsearch(BaseClient):
         if typed_keys is not None:
             __query["typed_keys"] = typed_keys
         __body = search_templates
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {
             "accept": "application/json",
             "content-type": "application/x-ndjson",
         }
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -2542,14 +2506,12 @@ class AsyncElasticsearch(BaseClient):
             __query["version_type"] = version_type
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters()
     async def open_point_in_time(
@@ -2587,12 +2549,10 @@ class AsyncElasticsearch(BaseClient):
             __query["human"] = human
         if pretty is not None:
             __query["pretty"] = pretty
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -2647,12 +2607,10 @@ class AsyncElasticsearch(BaseClient):
             __query["pretty"] = pretty
         if timeout is not None:
             __query["timeout"] = timeout
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request("PUT", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "PUT", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -2726,12 +2684,10 @@ class AsyncElasticsearch(BaseClient):
             __query["pretty"] = pretty
         if search_type is not None:
             __query["search_type"] = search_type
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -2827,12 +2783,10 @@ class AsyncElasticsearch(BaseClient):
             __query["wait_for_active_shards"] = wait_for_active_shards
         if wait_for_completion is not None:
             __query["wait_for_completion"] = wait_for_completion
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters()
     async def reindex_rethrottle(
@@ -2868,12 +2822,10 @@ class AsyncElasticsearch(BaseClient):
             __query["pretty"] = pretty
         if requests_per_second is not None:
             __query["requests_per_second"] = requests_per_second
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -2923,14 +2875,12 @@ class AsyncElasticsearch(BaseClient):
             __body["source"] = source
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -2974,14 +2924,12 @@ class AsyncElasticsearch(BaseClient):
             __body["script"] = script
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -3029,14 +2977,12 @@ class AsyncElasticsearch(BaseClient):
             __body["scroll"] = scroll
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -3379,14 +3325,12 @@ class AsyncElasticsearch(BaseClient):
             __body["version"] = version
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -3413,6 +3357,7 @@ class AsyncElasticsearch(BaseClient):
         runtime_mappings: Optional[Any] = None,
         size: Optional[int] = None,
         sort: Optional[Any] = None,
+        track_total_hits: Optional[Any] = None,
     ) -> BinaryApiResponse:
         """
         Searches a vector tile for geospatial values. Returns results as a binary Mapbox
@@ -3452,6 +3397,10 @@ class AsyncElasticsearch(BaseClient):
         :param sort: Sorts features in the hits layer. By default, the API calculates
             a bounding box for each feature. It sorts features based on this box’s diagonal
             length, from longest to shortest.
+        :param track_total_hits: Number of hits matching the query to count accurately.
+            If `true`, the exact number of hits is returned at the cost of some performance.
+            If `false`, the response does not include the total number of hits matching
+            the query.
         """
         if index in SKIP_IN_PATH:
             raise ValueError("Empty value passed for parameter 'index'")
@@ -3494,16 +3443,16 @@ class AsyncElasticsearch(BaseClient):
             __body["size"] = size
         if sort is not None:
             __body["sort"] = sort
+        if track_total_hits is not None:
+            __body["track_total_hits"] = track_total_hits
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/vnd.mapbox-vector-tile"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters()
     async def search_shards(
@@ -3567,12 +3516,10 @@ class AsyncElasticsearch(BaseClient):
             __query["pretty"] = pretty
         if routing is not None:
             __query["routing"] = routing
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -3686,12 +3633,10 @@ class AsyncElasticsearch(BaseClient):
             __body["source"] = source
         if typed_keys is not None:
             __query["typed_keys"] = typed_keys
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -3767,14 +3712,12 @@ class AsyncElasticsearch(BaseClient):
             __body["timeout"] = timeout
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -3878,14 +3821,12 @@ class AsyncElasticsearch(BaseClient):
             __query["version_type"] = version_type
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -4015,12 +3956,10 @@ class AsyncElasticsearch(BaseClient):
             __body["upsert"] = upsert
         if wait_for_active_shards is not None:
             __query["wait_for_active_shards"] = wait_for_active_shards
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters(
         body_fields=True,
@@ -4214,14 +4153,12 @@ class AsyncElasticsearch(BaseClient):
             __query["wait_for_completion"] = wait_for_completion
         if not __body:
             __body = None  # type: ignore[assignment]
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
         if __body is not None:
             __headers["content-type"] = "application/json"
-        return await self._perform_request("POST", __target, headers=__headers, body=__body)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers, body=__body
+        )
 
     @_rewrite_parameters()
     async def update_by_query_rethrottle(
@@ -4257,9 +4194,7 @@ class AsyncElasticsearch(BaseClient):
             __query["pretty"] = pretty
         if requests_per_second is not None:
             __query["requests_per_second"] = requests_per_second
-        if __query:
-            __target = f"{__path}?{_quote_query(__query)}"
-        else:
-            __target = __path
         __headers = {"accept": "application/json"}
-        return await self._perform_request("POST", __target, headers=__headers)  # type: ignore[no-any-return,return-value]
+        return await self.perform_request(  # type: ignore[return-value]
+            "POST", __path, params=__query, headers=__headers
+        )

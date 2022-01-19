@@ -276,7 +276,7 @@ class YamlRunner:
         warnings.simplefilter("always", category=ElasticsearchWarning)
         with warnings.catch_warnings(record=True) as caught_warnings:
             try:
-                self.last_response = api(**args).raw
+                self.last_response = api(**args).body
             except Exception as e:
                 self._skip_intentional_type_errors(e)
                 if not catch:
@@ -467,9 +467,11 @@ class YamlRunner:
         for step in path.split("."):
             if not step:
                 continue
+            # We check body again to handle E.g. '$body.$backing_index.data_stream'
+            if step.startswith("$body"):
+                continue
             step = step.replace("\1", ".")
             step = self._resolve(step)
-
             if (
                 isinstance(step, string_types)
                 and step.isdigit()

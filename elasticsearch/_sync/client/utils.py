@@ -267,7 +267,7 @@ def _quote(value: Any) -> str:
     return percent_encode(_escape(value), ",*")
 
 
-def _quote_query(query: Dict[str, Any]) -> str:
+def _quote_query(query: Mapping[str, Any]) -> str:
     return "&".join([f"{k}={_quote(v)}" for k, v in query.items()])
 
 
@@ -291,6 +291,13 @@ def _rewrite_parameters(
         @wraps(api)
         def wrapped(*args: Any, **kwargs: Any) -> Any:
             nonlocal api, body_name, body_fields
+
+            # Let's give a nicer error message when users pass positional arguments.
+            if len(args) >= 2:
+                raise TypeError(
+                    "Positional arguments can't be used with Elasticsearch API methods. "
+                    "Instead only use keyword arguments."
+                )
 
             # We merge 'params' first as transport options can be specified using params.
             if "params" in kwargs and (
